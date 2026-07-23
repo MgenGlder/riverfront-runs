@@ -566,6 +566,7 @@ export default function LiveMap() {
                   <th>Runner</th>
                   <th>Distance</th>
                   <th>Pace</th>
+                  {ROUTE_METRICS && <th>Route left</th>}
                   <th>Last update</th>
                   <th></th>
                 </tr>
@@ -573,6 +574,7 @@ export default function LiveMap() {
               <tbody>
                 {runners.map((r) => {
                   const isMe = r.id === myId
+                  const prog = ROUTE_METRICS ? routeProgress({ lat: r.lat, lng: r.lng }) : null
                   return (
                     <tr
                       key={r.id}
@@ -602,6 +604,9 @@ export default function LiveMap() {
                       <td className="roster-num">
                         {r.paceSecPerKm ? `${fmtPace(r.paceSecPerKm)} /mi` : '—'}
                       </td>
+                      {ROUTE_METRICS && (
+                        <td className="roster-num">{prog ? fmtDist(prog.remaining) : '—'}</td>
+                      )}
                       <td>{ago(r.updated, now)}</td>
                       <td className="roster-locate" aria-hidden="true">📍</td>
                     </tr>
