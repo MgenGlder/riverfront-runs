@@ -97,6 +97,36 @@ function fmtDuration(ms) {
 const fmtEta = (remainingM, secPerKm) =>
   !secPerKm || !isFinite(secPerKm) ? '—' : fmtDuration((remainingM / 1000) * secPerKm * 1000)
 
+// Interpolate lat/lng positions at each whole mile along the route.
+function buildMileMarkers(latlngs, metrics) {
+  if (!latlngs || !metrics) return []
+  const out = []
+  for (let mile = 1; mile * M_PER_MI < metrics.total; mile++) {
+    const target = mile * M_PER_MI
+    let i = 1
+    while (i < metrics.cum.length && metrics.cum[i] < target) i++
+    const s = metrics.cum[i - 1]
+    const e = metrics.cum[i]
+    const t = e > s ? (target - s) / (e - s) : 0
+    const [aLat, aLng] = latlngs[i - 1]
+    const [bLat, bLng] = latlngs[i]
+    out.push({ mile, pos: [aLat + t * (bLat - aLat), aLng + t * (bLng - aLng)] })
+  }
+  return out
+}
+const MILE_MARKERS = buildMileMarkers(ROUTE, ROUTE_METRICS)
+const ROUTE_TOTAL_MI = ROUTE_METRICS ? ROUTE_METRICS.total / M_PER_MI : 0
+
+function mileIcon(mile) {
+  return L.divIcon({
+    className: 'mile-marker',
+    html: `<span class="mile-badge">${mile}<small>MI</small></span>`,
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
+    popupAnchor: [0, -15],
+  })
+}
+
 function routePin(label, color) {
   return L.divIcon({
     className: 'route-pin',
@@ -189,9 +219,11 @@ export default function LiveMap() {
   const [now, setNow] = useState(Date.now())
   const [showRoute, setShowRoute] = useState(true)
   const [follow, setFollow] = useState(false)
+  const [mileReached, setMileReached] = useState(0) // mile just crossed, 0 = none
 
   const wsRef = useRef(null)
   const lastPosRef = useRef(null) // last GPS fix, re-sent by the heartbeat
+  const maxMileRef = useRef(0) // highest whole mile reached this session
   const mapRef = useRef(null) // Leaflet map instance
   const markerRefs = useRef({}) // runner id -> Leaflet marker
   const nameRef = useRef(name)
@@ -306,6 +338,8 @@ export default function LiveMap() {
       setMyId(null)
       setMyPos(null)
       setFollow(false)
+      maxMileRef.current = 0
+      setMileReached(0)
     }
   }, [mode])
 
@@ -353,6 +387,34 @@ export default function LiveMap() {
   }
   const me = myId ? runners.find((r) => r.id === myId) : null
   const myProgress = me ? routeProgress({ lat: me.lat, lng: me.lng }) : null
+
+  // Detect crossing a whole mile so we can celebrate it. Track the max mile
+  // reached (not the current one) so GPS jitter near a marker can't re-trigger.
+  const myMilesDone = myProgress ? Math.floor(myProgress.along / M_PER_MI) : null
+  useEffect(() => {
+    if (myMilesDone == null) return
+    if (myMilesDone > maxMileRef.current) {
+      const reached = myMilesDone
+      maxMileRef.current = reached
+      if (reached >= 1) {
+        setMileReached(reached)
+        if (navigator.vibrate) {
+          try {
+            navigator.vibrate([180, 90, 180])
+          } catch {
+            /* not supported */
+          }
+        }
+      }
+    }
+  }, [myMilesDone])
+
+  // Auto-dismiss the mile banner.
+  useEffect(() => {
+    if (!mileReached) return
+    const t = setTimeout(() => setMileReached(0), 10_000)
+    return () => clearTimeout(t)
+  }, [mileReached])
 
   const statusText =
     mode === 'off'
@@ -516,6 +578,11 @@ export default function LiveMap() {
                 <Marker position={ROUTE[ROUTE.length - 1]} icon={routePin('FINISH', '#e0533d')}>
                   <Popup>Finish</Popup>
                 </Marker>
+                {MILE_MARKERS.map((m) => (
+                  <Marker key={`mi-${m.mile}`} position={m.pos} icon={mileIcon(m.mile)}>
+                    <Popup>Mile {m.mile}</Popup>
+                  </Marker>
+                ))}
               </>
             )}
             {runners.map((r) => {
@@ -535,6 +602,15 @@ export default function LiveMap() {
               )
             })}
           </MapContainer>
+          {mileReached > 0 && (
+            <div className="mile-toast" role="status">
+              🎉 Mile {mileReached} done{ROUTE_TOTAL_MI ? ` of ~${ROUTE_TOTAL_MI.toFixed(1)}` : ''}!
+              Take a walk break if you like, then keep going.
+              <button onClick={() => setMileReached(0)} aria-label="Dismiss">
+                ×
+              </button>
+            </div>
+          )}
           {myPos && (
             <button
               type="button"
@@ -575,6 +651,7 @@ export default function LiveMap() {
                   <th>Runner</th>
                   <th>Distance</th>
                   <th>Pace</th>
+                  {ROUTE_METRICS && <th>Mile</th>}
                   {ROUTE_METRICS && <th>Route left</th>}
                   <th>Last update</th>
                   <th></th>
@@ -613,6 +690,24 @@ export default function LiveMap() {
                       <td className="roster-num">
                         {r.paceSecPerKm ? `${fmtPace(r.paceSecPerKm)} /mi` : '—'}
                       </td>
+                      {ROUTE_METRICS && (
+                        <td>
+                          {prog ? (
+                            <div className="mile-cell">
+                              <span className="mile-pill">
+                                Mile {Math.min(Math.ceil(ROUTE_TOTAL_MI), Math.floor(prog.along / M_PER_MI) + 1)}
+                              </span>
+                              <span className="mile-bar">
+                                <span
+                                  style={{ width: `${(((prog.along % M_PER_MI) / M_PER_MI) * 100).toFixed(0)}%` }}
+                                />
+                              </span>
+                            </div>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                      )}
                       {ROUTE_METRICS && (
                         <td className="roster-num">{prog ? fmtDist(prog.remaining) : '—'}</td>
                       )}
