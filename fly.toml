@@ -17,7 +17,10 @@ primary_region = 'ord'
   force_https = true
   auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 1
+  # Scale to zero: Fly stops the machine when idle (unbilled) and starts it on
+  # the next connection. ~2–5s cold start for the first runner; the client
+  # auto-reconnects. Set back to 1 for an always-warm machine.
+  min_machines_running = 0
 
   [[http_service.checks]]
     interval = '15s'
