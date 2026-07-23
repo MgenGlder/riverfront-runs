@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { MAP } from '../config.js'
@@ -102,6 +102,21 @@ function RecenterOnce({ pos }) {
   return null
 }
 
+// While "follow" is on, keep the map centered on the user as they move.
+function FollowMe({ pos, follow }) {
+  const map = useMap()
+  useEffect(() => {
+    if (follow && pos) map.panTo([pos.lat, pos.lng], { animate: true, duration: 0.5 })
+  }, [pos, follow, map])
+  return null
+}
+
+// Panning the map by hand turns follow off, so the map stops fighting the user.
+function StopFollowOnDrag({ onUserPan }) {
+  useMapEvents({ dragstart: onUserPan })
+  return null
+}
+
 export default function LiveMap() {
   const [name, setName] = useState('')
   const [mode, setMode] = useState('off') // 'off' | 'sharing' | 'watching'
@@ -113,6 +128,7 @@ export default function LiveMap() {
   const [wsError, setWsError] = useState('')
   const [now, setNow] = useState(Date.now())
   const [showRoute, setShowRoute] = useState(true)
+  const [follow, setFollow] = useState(false)
 
   const wsRef = useRef(null)
   const lastPosRef = useRef(null) // last GPS fix, re-sent by the heartbeat
@@ -222,6 +238,32 @@ export default function LiveMap() {
       setRunners([])
       setMyId(null)
       setMyPos(null)
+      setFollow(false)
+    }
+  }, [mode])
+
+  // Keep the screen awake while sharing so the phone doesn't auto-lock (which
+  // would suspend geolocation). Best-effort: unsupported on some browsers, and
+  // it only works while the tab is visible — it can't track with the screen off.
+  useEffect(() => {
+    if (mode !== 'sharing' || !('wakeLock' in navigator)) return
+    let lock = null
+    const acquire = async () => {
+      try {
+        lock = await navigator.wakeLock.request('screen')
+      } catch {
+        /* denied or not allowed (e.g. tab not visible) — ignore */
+      }
+    }
+    acquire()
+    // Wake locks are released when the tab is hidden; re-acquire on return.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') acquire()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      lock?.release?.().catch(() => {})
     }
   }, [mode])
 
@@ -233,6 +275,14 @@ export default function LiveMap() {
     if (!map) return
     map.flyTo([r.lat, r.lng], Math.max(map.getZoom(), 16), { duration: 0.75 })
     markerRefs.current[r.id]?.openPopup()
+  }
+
+  // "Center on me": snap to my current position and start following it.
+  const centerOnMe = () => {
+    const map = mapRef.current
+    if (!map || !myPos) return
+    map.flyTo([myPos.lat, myPos.lng], Math.max(map.getZoom(), 16), { duration: 0.6 })
+    setFollow(true)
   }
   const statusText =
     mode === 'off'
@@ -298,6 +348,13 @@ export default function LiveMap() {
           {mode === 'watching' && (
             <p className="live-note">👀 Watch mode — your location is not being shared.</p>
           )}
+          {mode === 'sharing' && (
+            <p className="live-note">
+              📱 Keep this tab open with your screen on. We keep the screen awake while you share,
+              but phone browsers pause location if the screen locks or you switch apps — you’ll
+              reappear when you come back.
+            </p>
+          )}
           {error && <p className="live-error">⚠️ {error}</p>}
           {wsError && <p className="live-error">⚠️ {wsError}</p>}
 
@@ -332,6 +389,8 @@ export default function LiveMap() {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
             <RecenterOnce pos={myPos} />
+            <FollowMe pos={myPos} follow={follow} />
+            <StopFollowOnDrag onUserPan={() => setFollow(false)} />
             {ROUTE && showRoute && (
               <>
                 <FitRoute latlngs={ROUTE} active={!myPos} />
@@ -364,6 +423,18 @@ export default function LiveMap() {
               )
             })}
           </MapContainer>
+          {myPos && (
+            <button
+              type="button"
+              className={`locate-btn${follow ? ' active' : ''}`}
+              onClick={centerOnMe}
+              title={follow ? 'Following your location' : 'Center on my location'}
+              aria-label="Center on my location"
+            >
+              <span className="locate-icon" aria-hidden="true">◎</span>
+              {follow ? 'Following' : 'Center on me'}
+            </button>
+          )}
           {mode === 'off' && (
             <div className="live-map-overlay">
               <p>Start sharing or watch the map to see who’s out running.</p>
