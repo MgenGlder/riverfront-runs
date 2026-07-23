@@ -1,0 +1,13 @@
+node_modules
+dist
+.git
+.github
+src
+public
+index.html
+vite.config.js
+*.log
+.env
+.env.*
+!.env.example
+README.md

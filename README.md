@@ -48,8 +48,14 @@ runners auto-expire after 30 seconds. No accounts — just a display name.
 ## Project structure
 ```
 index.html              Vite HTML entry (fonts + <div id="root">)
+Dockerfile              Server-only image for Fly.io / any container host
+fly.toml                Fly.io service config + ALLOWED_ORIGINS allowlist
+render.yaml             Render blueprint (single-host: site + server together)
+.github/workflows/
+  fly-deploy.yml        Auto-deploy the server to Fly on push to main
+.env.example            VITE_WS_URL docs for the split deploy
 server/
-  index.js              Live-map WebSocket server (+ serves dist/ in production)
+  index.js              Live-map WebSocket server (+ serves dist/ in single-host mode)
 public/
   flyer.png             Event flyer (served at /flyer.png)
 src/
@@ -70,17 +76,88 @@ src/
 
 ## Deploy
 
-**Marketing page only (no live map):** `npm run build` outputs a static site to `dist/`
-that works on any static host (Netlify, Vercel, Cloudflare Pages, GitHub Pages). For
-GitHub Pages under a subpath (e.g. `username.github.io/riverfront-runs/`), set
-`base: '/riverfront-runs/'` in `vite.config.js`, then deploy `dist/`.
+> ### ⚠️ Live-map markers not showing after deploy?
+> The live map needs a **long-running Node server** (`server/index.js`). Static/build-only
+> hosts like **plain Netlify, Vercel, GitHub Pages, or Cloudflare Pages don't run it** —
+> their serverless functions also can't hold a persistent WebSocket. The site loads, but the
+> map never receives runners, so no markers appear. Fix: run the server on a host that stays
+> alive (below). When it's misconfigured the Live Map tab now shows an explicit error instead
+> of hanging on "Connecting…".
 
-**Full site incl. live map:** deploy to a host that runs Node (Render, Railway, Fly.io,
-a VPS). Build, then start the server — it serves the built site *and* the WebSocket from
-one process/port:
+### Option A — everything on one Node host (simplest, recommended)
+Deploy to a host that runs Node (**Render, Railway, Fly.io, a VPS**). One process serves the
+built site *and* the WebSocket from the same origin, so **no env var is needed**.
 ```bash
-npm ci && npm run build && npm start   # respects the PORT env var
+npm ci && npm run build && npm start   # honors the PORT env var
 ```
-The browser connects to the WebSocket same-origin at `/ws`, so no extra config is needed.
-If you host the live server on a **different** origin than the page, set `VITE_WS_URL`
-(e.g. `VITE_WS_URL=wss://live.example.com/ws`) at build time.
+A ready-made **Render blueprint** is included: in Render, *New + → Blueprint*, point it at
+this repo, and it uses `render.yaml`. Railway/Fly: build command `npm ci && npm run build`,
+start command `npm start`.
+
+### Option B — static site on Netlify + server on Fly.io (your setup)
+The site and server live on **different domains**, so two paired settings connect them:
+
+| Where | Variable | Value | Read at |
+|-------|----------|-------|---------|
+| **Netlify** (site) | `VITE_WS_URL` | `wss://<your-fly-app>.fly.dev/ws` | build time |
+| **Fly** (server) | `ALLOWED_ORIGINS` | `https://<your-site>.netlify.app` | runtime |
+
+`VITE_WS_URL` tells the page where to connect; `ALLOWED_ORIGINS` tells the server which
+site(s) are allowed to connect (see "Cross-origin & security" below).
+
+**Deploy the server to Fly** (uses the included `Dockerfile` + `fly.toml`, server-only —
+no Vite build in the image). The allowed origins are committed in `fly.toml`'s `[env]`
+(they're public URLs), so there's no secret to set for CORS:
+```bash
+fly launch --no-deploy   # first time: creates the app; match the name in fly.toml
+fly deploy               # or push to main and let the GitHub Action deploy (below)
+# note the app URL, e.g. https://riverfront-runs.fly.dev  (health check at /health)
+```
+The allowlist lives in `fly.toml`:
+```toml
+[env]
+  ALLOWED_ORIGINS = "https://riverfrontruns.netlify.app,https://riverfrontruns2.netlify.app"
+```
+Add or change origins by editing that line and redeploying (comma-separated; trailing
+slash optional — the server normalizes it).
+
+**Auto-deploy on push (GitHub Actions):** `.github/workflows/fly-deploy.yml` redeploys the
+server to Fly whenever server files change on `main` (frontend-only changes are Netlify's
+job and are ignored). One-time setup:
+```bash
+fly tokens create deploy -x 999999h        # create a deploy token
+```
+Then in GitHub: *Settings → Secrets and variables → Actions → New repository secret* →
+name `FLY_API_TOKEN`, paste the token. You can also trigger it manually from the Actions tab
+(*Run workflow*).
+
+**Point Netlify at it:** *Site settings → Environment variables* → add
+`VITE_WS_URL = wss://YOUR-FLY-APP.fly.dev/ws`, then trigger a redeploy so the build bakes it
+in. (It's read by Vite at build time — changing it requires a rebuild.) See `.env.example`.
+
+Adding a custom domain later? Update both: the new site origin in Fly's `ALLOWED_ORIGINS`
+(comma-separate multiple) and the new server URL in Netlify's `VITE_WS_URL`.
+
+#### Cross-origin & security (SOP / CORS)
+- **WebSockets aren't governed by CORS or preflight** — a browser will open a cross-origin
+  socket regardless. The actual guard is the **`Origin` header**, which the server validates
+  against `ALLOWED_ORIGINS` on the upgrade to block cross-site WebSocket hijacking (CSWSH).
+  A disallowed origin is rejected with **HTTP 403**.
+- **HTTP endpoints** (e.g. `/health`) return proper **CORS headers**
+  (`Access-Control-Allow-Origin` reflected for allowed origins only, plus `Vary: Origin`) and
+  answer preflight `OPTIONS` with `204`.
+- If `ALLOWED_ORIGINS` is **unset**, all origins are allowed — convenient for local dev and
+  same-origin single-host deploys, but **set it in production** for the split setup.
+- Use `wss://` (not `ws://`) from an HTTPS page, or the browser blocks it as mixed content.
+  Fly's `force_https` + TLS termination make `wss://…fly.dev/ws` work out of the box.
+
+### Marketing page only (no live map)
+`npm run build` outputs a static site to `dist/` for any static host. For GitHub Pages under a
+subpath (e.g. `username.github.io/riverfront-runs/`), set `base: '/riverfront-runs/'` in
+`vite.config.js`, then deploy `dist/`. The Live Map tab will show a connection error unless you
+also stand up the server (Option A/B).
+
+### Heads-up on free tiers
+Free plans on Render/Railway/Fly **sleep after inactivity** and reset in-memory state — fine
+for a live map (runners re-appear when they reconnect), but the first visitor after idle may
+wait a few seconds for the server to wake.

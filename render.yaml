@@ -1,0 +1,15 @@
+# One-click deploy to Render (https://render.com) as a single long-running
+# Node service that serves BOTH the built site and the live-map WebSocket.
+# In the Render dashboard: New + → Blueprint → point at this repo.
+# Render provides PORT automatically; the server reads process.env.PORT.
+# No VITE_WS_URL needed here — the page and WebSocket share one origin.
+services:
+  - type: web
+    name: riverfront-runs
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "22"

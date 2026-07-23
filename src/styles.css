@@ -356,8 +356,26 @@ a:hover { text-decoration: underline; }
 .field input:disabled { background: var(--off); color: var(--muted); }
 
 .live-btn { width: 100%; text-align: center; border: none; cursor: pointer; font: inherit; font-weight: 700; }
+.live-btn-secondary {
+  margin-top: 10px;
+  background: transparent;
+  color: var(--blue-600);
+  border: 1px solid #cdddec;
+  box-shadow: none;
+}
+.live-btn-secondary:hover { background: var(--sky-050); color: var(--blue-600); }
 .btn-stop { background: #e0533d; box-shadow: 0 8px 20px rgba(224, 83, 61, 0.3); }
 .btn-stop:hover { background: #c8462f; }
+
+.live-note {
+  margin: 14px 0 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+  background: var(--sky-050);
+  border: 1px solid #d8e8f6;
+  border-radius: 10px;
+  padding: 9px 12px;
+}
 
 .live-status {
   display: flex;
@@ -437,6 +455,65 @@ a:hover { text-decoration: underline; }
   0%   { box-shadow: 0 0 0 0 rgba(255, 122, 61, 0.55), 0 1px 4px rgba(0,0,0,0.35); }
   70%  { box-shadow: 0 0 0 12px rgba(255, 122, 61, 0), 0 1px 4px rgba(0,0,0,0.35); }
   100% { box-shadow: 0 0 0 0 rgba(255, 122, 61, 0), 0 1px 4px rgba(0,0,0,0.35); }
+}
+
+/* participant roster table */
+.live-roster { margin-top: 34px; }
+.live-roster h2 {
+  font-size: 1.9rem;
+  text-transform: uppercase;
+  color: var(--navy-800);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.roster-count {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #fff;
+  background: var(--blue-500);
+  border-radius: 999px;
+  padding: 2px 12px;
+  min-width: 28px;
+  text-align: center;
+}
+.roster-empty { color: var(--muted); margin-top: 8px; }
+.roster-table-wrap {
+  margin-top: 14px;
+  overflow-x: auto;
+  border: 1px solid #e3ecf6;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+.roster-table { width: 100%; border-collapse: collapse; min-width: 480px; }
+.roster-table th,
+.roster-table td { text-align: left; padding: 13px 18px; }
+.roster-table thead th {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  border-bottom: 1px solid #e6eef7;
+  background: var(--off);
+}
+.roster-table tbody tr { border-bottom: 1px solid #eef3f9; }
+.roster-table tbody tr:last-child { border-bottom: none; }
+.roster-table tbody tr.is-me { background: #fff5ef; }
+.roster-table td { color: var(--ink); font-weight: 500; }
+.roster-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.12); }
+.roster-coords { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 0.9rem; }
+.you-badge {
+  margin-left: 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: var(--accent, #ff7a3d);
+  padding: 2px 8px;
+  border-radius: 999px;
 }
 
 /* ===== Responsive ===== */

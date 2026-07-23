@@ -5,7 +5,9 @@ import 'leaflet/dist/leaflet.css'
 import { MAP } from '../config.js'
 
 // Connect same-origin (dev: Vite proxies /ws → :3001; prod: same Node server).
-// Override with VITE_WS_URL if the live server lives on a different host.
+// If the live server lives on a DIFFERENT host than the page (e.g. site on
+// Netlify, server on Render), set VITE_WS_URL at build time, e.g.
+//   VITE_WS_URL=wss://your-server.onrender.com/ws
 const WS_URL =
   import.meta.env.VITE_WS_URL ||
   `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`
@@ -23,6 +25,13 @@ function runnerIcon(color, isMe) {
   })
 }
 
+function ago(ts, now) {
+  const s = Math.max(0, Math.round((now - ts) / 1000))
+  if (s < 5) return 'just now'
+  if (s < 60) return `${s}s ago`
+  return `${Math.floor(s / 60)}m ago`
+}
+
 // Recenter the map on the user's first fix, without fighting them afterward.
 function RecenterOnce({ pos }) {
   const map = useMap()
@@ -38,12 +47,14 @@ function RecenterOnce({ pos }) {
 
 export default function LiveMap() {
   const [name, setName] = useState('')
-  const [sharing, setSharing] = useState(false)
+  const [mode, setMode] = useState('off') // 'off' | 'sharing' | 'watching'
   const [connected, setConnected] = useState(false)
   const [myId, setMyId] = useState(null)
   const [myPos, setMyPos] = useState(null)
   const [runners, setRunners] = useState([])
   const [error, setError] = useState('')
+  const [wsError, setWsError] = useState('')
+  const [now, setNow] = useState(Date.now())
 
   const wsRef = useRef(null)
   const nameRef = useRef(name)
@@ -51,22 +62,36 @@ export default function LiveMap() {
     nameRef.current = name
   }, [name])
 
+  // Tick once a second so "active Xs ago" stays fresh.
   useEffect(() => {
-    if (!sharing) return
+    if (mode === 'off') return
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [mode])
 
-    if (!('geolocation' in navigator)) {
+  useEffect(() => {
+    if (mode === 'off') return
+
+    const sharing = mode === 'sharing'
+
+    if (sharing && !('geolocation' in navigator)) {
       setError('Geolocation is not supported by this browser.')
-      setSharing(false)
+      setMode('off')
       return
     }
 
     let closedByUs = false
     let reconnectTimer
+    let everConnected = false
 
     const connect = () => {
       const ws = new WebSocket(WS_URL)
       wsRef.current = ws
-      ws.onopen = () => setConnected(true)
+      ws.onopen = () => {
+        everConnected = true
+        setConnected(true)
+        setWsError('')
+      }
       ws.onmessage = (e) => {
         let msg
         try {
@@ -79,32 +104,42 @@ export default function LiveMap() {
       }
       ws.onclose = () => {
         setConnected(false)
-        if (!closedByUs) reconnectTimer = setTimeout(connect, 2000)
+        if (!everConnected) {
+          setWsError(
+            `Couldn't reach the live server at ${WS_URL}. The Node server must be running and long-lived — a static host (e.g. plain Netlify) can't serve it. If the server is on another host, set VITE_WS_URL at build time.`,
+          )
+        }
+        if (!closedByUs) reconnectTimer = setTimeout(connect, 2500)
       }
       ws.onerror = () => ws.close()
     }
     connect()
 
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        setError('')
-        const p = { lat: pos.coords.latitude, lng: pos.coords.longitude }
-        setMyPos(p)
-        const ws = wsRef.current
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'update', name: nameRef.current, lat: p.lat, lng: p.lng }))
-        }
-      },
-      (err) => setError(err.message || 'Could not get your location.'),
-      { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 },
-    )
+    let watchId
+    if (sharing) {
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          setError('')
+          const p = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+          setMyPos(p)
+          const ws = wsRef.current
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'update', name: nameRef.current, lat: p.lat, lng: p.lng }))
+          }
+        },
+        (err) => setError(err.message || 'Could not get your location.'),
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 },
+      )
+    }
 
     return () => {
       closedByUs = true
       clearTimeout(reconnectTimer)
-      navigator.geolocation.clearWatch(watchId)
+      if (watchId != null) navigator.geolocation.clearWatch(watchId)
       const ws = wsRef.current
-      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'leave' }))
+      if (ws && ws.readyState === WebSocket.OPEN && sharing) {
+        ws.send(JSON.stringify({ type: 'leave' }))
+      }
       ws?.close()
       wsRef.current = null
       setConnected(false)
@@ -112,9 +147,17 @@ export default function LiveMap() {
       setMyId(null)
       setMyPos(null)
     }
-  }, [sharing])
+  }, [mode])
 
   const activeCount = runners.length
+  const statusText =
+    mode === 'off'
+      ? 'Not connected'
+      : !connected
+        ? 'Connecting…'
+        : mode === 'watching'
+          ? `Watching · ${activeCount} runner${activeCount === 1 ? '' : 's'} sharing`
+          : `Sharing live · ${activeCount} runner${activeCount === 1 ? '' : 's'} on the map`
 
   return (
     <section className="live">
@@ -123,7 +166,8 @@ export default function LiveMap() {
         <h1>Live Runner Map</h1>
         <p className="live-lead">
           Out for the Sunday run? Turn on location sharing to see everyone moving on the riverfront
-          in real time — and let them see you.
+          in real time — and let them see you. Just want to keep an eye on the group? Watch the map
+          without sharing.
         </p>
       </div>
 
@@ -137,36 +181,46 @@ export default function LiveMap() {
               value={name}
               maxLength={24}
               onChange={(e) => setName(e.target.value)}
-              disabled={sharing}
+              disabled={mode !== 'off'}
             />
           </label>
 
-          {!sharing ? (
-            <button className="btn btn-lg live-btn" onClick={() => setSharing(true)}>
-              Start sharing my location
-            </button>
-          ) : (
-            <button className="btn btn-lg btn-stop live-btn" onClick={() => setSharing(false)}>
+          {mode === 'off' && (
+            <>
+              <button className="btn btn-lg live-btn" onClick={() => setMode('sharing')}>
+                Start sharing my location
+              </button>
+              <button className="btn live-btn live-btn-secondary" onClick={() => setMode('watching')}>
+                Just watch the map
+              </button>
+            </>
+          )}
+          {mode === 'sharing' && (
+            <button className="btn btn-lg btn-stop live-btn" onClick={() => setMode('off')}>
               Stop sharing
+            </button>
+          )}
+          {mode === 'watching' && (
+            <button className="btn btn-lg btn-stop live-btn" onClick={() => setMode('off')}>
+              Stop watching
             </button>
           )}
 
           <div className="live-status">
-            <span className={`status-dot ${sharing && connected ? 'on' : 'off'}`} />
-            {sharing
-              ? connected
-                ? `Sharing live · ${activeCount} runner${activeCount === 1 ? '' : 's'} on the map`
-                : 'Connecting…'
-              : 'Not sharing'}
+            <span className={`status-dot ${mode !== 'off' && connected ? 'on' : 'off'}`} />
+            {statusText}
           </div>
 
+          {mode === 'watching' && (
+            <p className="live-note">👀 Watch mode — your location is not being shared.</p>
+          )}
           {error && <p className="live-error">⚠️ {error}</p>}
+          {wsError && <p className="live-error">⚠️ {wsError}</p>}
 
           <p className="live-privacy">
             🔒 <strong>Your privacy:</strong> sharing is opt-in and stops the moment you press
-            “Stop sharing” or close this tab. Locations are kept in memory only, never saved, and
-            disappear after you leave. Only people with this page open while you’re sharing can see
-            you.
+            “Stop” or close this tab. Locations are kept in memory only, never saved, and disappear
+            after you leave. Only people with this page open while you’re sharing can see you.
           </p>
         </aside>
 
@@ -190,12 +244,59 @@ export default function LiveMap() {
               )
             })}
           </MapContainer>
-          {!sharing && (
+          {mode === 'off' && (
             <div className="live-map-overlay">
-              <p>Start sharing to appear on the map and see other runners.</p>
+              <p>Start sharing or watch the map to see who’s out running.</p>
             </div>
           )}
         </div>
+      </div>
+
+      <div className="live-roster container">
+        <h2>
+          Who’s out right now <span className="roster-count">{activeCount}</span>
+        </h2>
+        {mode === 'off' ? (
+          <p className="roster-empty">Start sharing or watching to see the roster.</p>
+        ) : activeCount === 0 ? (
+          <p className="roster-empty">No one is sharing a location yet. Be the first!</p>
+        ) : (
+          <div className="roster-table-wrap">
+            <table className="roster-table">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Runner</th>
+                  <th>Last update</th>
+                  <th>Position</th>
+                </tr>
+              </thead>
+              <tbody>
+                {runners.map((r) => {
+                  const isMe = r.id === myId
+                  return (
+                    <tr key={r.id} className={isMe ? 'is-me' : ''}>
+                      <td>
+                        <span
+                          className="roster-dot"
+                          style={{ background: isMe ? COLOR_ME : COLOR_OTHER }}
+                        />
+                      </td>
+                      <td>
+                        {r.name || 'Runner'}
+                        {isMe && <span className="you-badge">you</span>}
+                      </td>
+                      <td>{ago(r.updated, now)}</td>
+                      <td className="roster-coords">
+                        {r.lat.toFixed(4)}, {r.lng.toFixed(4)}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </section>
   )
