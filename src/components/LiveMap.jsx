@@ -58,6 +58,8 @@ export default function LiveMap() {
 
   const wsRef = useRef(null)
   const lastPosRef = useRef(null) // last GPS fix, re-sent by the heartbeat
+  const mapRef = useRef(null) // Leaflet map instance
+  const markerRefs = useRef({}) // runner id -> Leaflet marker
   const nameRef = useRef(name)
   useEffect(() => {
     nameRef.current = name
@@ -166,6 +168,14 @@ export default function LiveMap() {
   }, [mode])
 
   const activeCount = runners.length
+
+  // Clicking a roster row flies the map to that runner and opens their popup.
+  const focusRunner = (r) => {
+    const map = mapRef.current
+    if (!map) return
+    map.flyTo([r.lat, r.lng], Math.max(map.getZoom(), 16), { duration: 0.75 })
+    markerRefs.current[r.id]?.openPopup()
+  }
   const statusText =
     mode === 'off'
       ? 'Not connected'
@@ -241,7 +251,13 @@ export default function LiveMap() {
         </aside>
 
         <div className="live-map-wrap">
-          <MapContainer center={MAP.center} zoom={MAP.zoom} className="live-map" scrollWheelZoom>
+          <MapContainer
+            center={MAP.center}
+            zoom={MAP.zoom}
+            className="live-map"
+            scrollWheelZoom
+            ref={mapRef}
+          >
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -254,6 +270,10 @@ export default function LiveMap() {
                   key={r.id}
                   position={[r.lat, r.lng]}
                   icon={runnerIcon(isMe ? COLOR_ME : COLOR_OTHER, isMe)}
+                  ref={(m) => {
+                    if (m) markerRefs.current[r.id] = m
+                    else delete markerRefs.current[r.id]
+                  }}
                 >
                   <Popup>{isMe ? `${r.name || 'You'} (you)` : r.name || 'Runner'}</Popup>
                 </Marker>
@@ -272,6 +292,9 @@ export default function LiveMap() {
         <h2>
           Who’s out right now <span className="roster-count">{activeCount}</span>
         </h2>
+        {mode !== 'off' && activeCount > 0 && (
+          <p className="roster-hint">Tap a runner to jump to them on the map.</p>
+        )}
         {mode === 'off' ? (
           <p className="roster-empty">Start sharing or watching to see the roster.</p>
         ) : activeCount === 0 ? (
@@ -285,13 +308,27 @@ export default function LiveMap() {
                   <th>Runner</th>
                   <th>Last update</th>
                   <th>Position</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 {runners.map((r) => {
                   const isMe = r.id === myId
                   return (
-                    <tr key={r.id} className={isMe ? 'is-me' : ''}>
+                    <tr
+                      key={r.id}
+                      className={`roster-row${isMe ? ' is-me' : ''}`}
+                      role="button"
+                      tabIndex={0}
+                      title="Show on map"
+                      onClick={() => focusRunner(r)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          focusRunner(r)
+                        }
+                      }}
+                    >
                       <td>
                         <span
                           className="roster-dot"
@@ -306,6 +343,7 @@ export default function LiveMap() {
                       <td className="roster-coords">
                         {r.lat.toFixed(4)}, {r.lng.toFixed(4)}
                       </td>
+                      <td className="roster-locate" aria-hidden="true">📍</td>
                     </tr>
                   )
                 })}

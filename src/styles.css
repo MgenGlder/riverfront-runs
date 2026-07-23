@@ -479,6 +479,7 @@ a:hover { text-decoration: underline; }
   text-align: center;
 }
 .roster-empty { color: var(--muted); margin-top: 8px; }
+.roster-hint { color: var(--muted); font-size: 0.9rem; margin: 6px 0 0; }
 .roster-table-wrap {
   margin-top: 14px;
   overflow-x: auto;
@@ -501,6 +502,13 @@ a:hover { text-decoration: underline; }
 .roster-table tbody tr { border-bottom: 1px solid #eef3f9; }
 .roster-table tbody tr:last-child { border-bottom: none; }
 .roster-table tbody tr.is-me { background: #fff5ef; }
+.roster-row { cursor: pointer; transition: background .12s ease; }
+.roster-row:hover { background: var(--sky-050); }
+.roster-row.is-me:hover { background: #ffede1; }
+.roster-row:focus-visible { outline: 2px solid var(--blue-400); outline-offset: -2px; }
+.roster-locate { text-align: right; opacity: 0; transition: opacity .12s ease; }
+.roster-row:hover .roster-locate,
+.roster-row:focus-visible .roster-locate { opacity: 0.85; }
 .roster-table td { color: var(--ink); font-weight: 500; }
 .roster-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.12); }
 .roster-coords { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 0.9rem; }
