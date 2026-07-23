@@ -57,6 +57,7 @@ export default function LiveMap() {
   const [now, setNow] = useState(Date.now())
 
   const wsRef = useRef(null)
+  const lastPosRef = useRef(null) // last GPS fix, re-sent by the heartbeat
   const nameRef = useRef(name)
   useEffect(() => {
     nameRef.current = name
@@ -115,26 +116,41 @@ export default function LiveMap() {
     }
     connect()
 
+    const sendPos = (p) => {
+      const ws = wsRef.current
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'update', name: nameRef.current, lat: p.lat, lng: p.lng }))
+      }
+    }
+
     let watchId
+    let heartbeat
     if (sharing) {
       watchId = navigator.geolocation.watchPosition(
         (pos) => {
           setError('')
           const p = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+          lastPosRef.current = p
           setMyPos(p)
-          const ws = wsRef.current
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'update', name: nameRef.current, lat: p.lat, lng: p.lng }))
-          }
+          sendPos(p)
         },
         (err) => setError(err.message || 'Could not get your location.'),
         { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 },
       )
+
+      // watchPosition only fires when you MOVE, but the server prunes runners
+      // silent for 30s. Re-send the last fix every 10s so a stationary runner
+      // (waiting at the start, standing still) stays on the map.
+      heartbeat = setInterval(() => {
+        if (lastPosRef.current) sendPos(lastPosRef.current)
+      }, 10_000)
     }
 
     return () => {
       closedByUs = true
       clearTimeout(reconnectTimer)
+      if (heartbeat) clearInterval(heartbeat)
+      lastPosRef.current = null
       if (watchId != null) navigator.geolocation.clearWatch(watchId)
       const ws = wsRef.current
       if (ws && ws.readyState === WebSocket.OPEN && sharing) {
