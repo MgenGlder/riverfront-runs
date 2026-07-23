@@ -130,8 +130,41 @@ const wss = new WebSocketServer({
   },
 })
 
+// Great-circle distance between two lat/lng points, in meters.
+function haversine(aLat, aLng, bLat, bLng) {
+  const R = 6371000
+  const toRad = (d) => (d * Math.PI) / 180
+  const dLat = toRad(bLat - aLat)
+  const dLng = toRad(bLng - aLng)
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLng / 2) ** 2
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)))
+}
+
+const PACE_WINDOW_MS = 60_000 // rolling window for "current" pace
+const MIN_STEP_M = 4 // ignore GPS jitter / stationary heartbeats below this
+const MAX_STEP_M = 250 // ignore single-fix teleport spikes above this
+
+// Only fields the clients need (omit internal rolling samples).
+function publicRunner(r) {
+  return {
+    id: r.id,
+    name: r.name,
+    lat: r.lat,
+    lng: r.lng,
+    updated: r.updated,
+    distance: r.distance, // meters, cumulative
+    startedAt: r.startedAt, // ms epoch of first fix
+    paceSecPerKm: r.paceSecPerKm, // rolling pace, or null
+  }
+}
+
 function broadcast() {
-  const payload = JSON.stringify({ type: 'runners', runners: [...runners.values()] })
+  const payload = JSON.stringify({
+    type: 'runners',
+    runners: [...runners.values()].map(publicRunner),
+  })
   for (const client of wss.clients) {
     if (client.readyState === 1 /* OPEN */) client.send(payload)
   }
@@ -156,7 +189,32 @@ wss.on('connection', (ws) => {
       const lng = Number(msg.lng)
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
       const name = String(msg.name || 'Runner').trim().slice(0, MAX_NAME) || 'Runner'
-      runners.set(id, { id, name, lat, lng, updated: Date.now() })
+      const now = Date.now()
+      const prev = runners.get(id)
+
+      const startedAt = prev?.startedAt || now
+      let distance = prev?.distance || 0
+      let samples = prev?.samples || []
+
+      if (prev) {
+        const step = haversine(prev.lat, prev.lng, lat, lng)
+        // Add real movement only; drop jitter (heartbeats resend the same
+        // point, step ~0) and implausible single-fix jumps.
+        if (step >= MIN_STEP_M && step <= MAX_STEP_M) distance += step
+      }
+
+      // Rolling pace over the last PACE_WINDOW_MS of cumulative distance.
+      samples = [...samples.filter((s) => now - s.t <= PACE_WINDOW_MS), { t: now, d: distance }]
+      let paceSecPerKm = null
+      if (samples.length >= 2) {
+        const first = samples[0]
+        const last = samples[samples.length - 1]
+        const dMeters = last.d - first.d
+        const dSec = (last.t - first.t) / 1000
+        if (dMeters > 20 && dSec > 0) paceSecPerKm = (dSec / dMeters) * 1000
+      }
+
+      runners.set(id, { id, name, lat, lng, updated: now, distance, startedAt, samples, paceSecPerKm })
       broadcast()
     } else if (msg.type === 'leave') {
       if (runners.delete(id)) broadcast()

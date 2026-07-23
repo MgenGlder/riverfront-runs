@@ -271,6 +271,13 @@ a:hover { text-decoration: underline; }
 }
 .cta-band h2 { font-size: clamp(2.6rem, 6vw, 4rem); text-transform: uppercase; }
 .cta-band p { color: rgba(255,255,255,0.9); font-size: 1.15rem; margin: 10px 0 26px; }
+.cta-buttons {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.cta-buttons .btn { cursor: pointer; }
 .cta-note { font-size: 0.98rem; margin-top: 22px; }
 .cta-note strong { color: var(--blue-300); }
 
@@ -479,6 +486,55 @@ a:hover { text-decoration: underline; }
   box-shadow: 0 1px 5px rgba(0, 0, 0, 0.35);
   white-space: nowrap;
 }
+
+/* personal "Your run" stat card */
+.my-stats {
+  margin-top: 18px;
+  background: linear-gradient(160deg, var(--navy-800), var(--blue-600));
+  border-radius: 16px;
+  padding: 16px 18px 14px;
+  color: #fff;
+}
+.my-stats h3 {
+  font-family: 'Barlow Condensed', sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 1.15rem;
+  margin: 0 0 12px;
+  color: var(--blue-300);
+}
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.stat {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 11px;
+  padding: 9px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stat-value {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.stat-unit { font-size: 0.8rem; font-weight: 600; color: rgba(255, 255, 255, 0.7); }
+.stat-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.75);
+}
+.stat-foot { margin: 10px 0 0; font-size: 0.76rem; color: rgba(255, 255, 255, 0.7); }
+
+.roster-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .route-toggle {
   display: flex;

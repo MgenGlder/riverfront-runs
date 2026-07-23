@@ -38,6 +38,65 @@ const gpxRaw = Object.values(
 
 const ROUTE = (gpxRaw && gpxLatLngs(gpxRaw)) || routeLatLngs(routeGeo)
 
+// --- Route metrics: project a position onto the route to get progress /
+// remaining distance, so it still works when a runner drifts off the line. ---
+function buildRouteMetrics(latlngs) {
+  if (!latlngs || latlngs.length < 2) return null
+  const [lat0, lng0] = latlngs[0]
+  const mPerLat = 110540
+  const mPerLng = 111320 * Math.cos((lat0 * Math.PI) / 180)
+  const xy = latlngs.map(([lat, lng]) => [(lng - lng0) * mPerLng, (lat - lat0) * mPerLat])
+  const cum = [0]
+  for (let i = 1; i < xy.length; i++) {
+    cum.push(cum[i - 1] + Math.hypot(xy[i][0] - xy[i - 1][0], xy[i][1] - xy[i - 1][1]))
+  }
+  return { xy, cum, total: cum[cum.length - 1], lat0, lng0, mPerLat, mPerLng }
+}
+const ROUTE_METRICS = buildRouteMetrics(ROUTE)
+
+function routeProgress(pos) {
+  const m = ROUTE_METRICS
+  if (!m || !pos) return null
+  const px = (pos.lng - m.lng0) * m.mPerLng
+  const py = (pos.lat - m.lat0) * m.mPerLat
+  let best = { off: Infinity, along: 0 }
+  for (let i = 1; i < m.xy.length; i++) {
+    const [ax, ay] = m.xy[i - 1]
+    const [bx, by] = m.xy[i]
+    const dx = bx - ax
+    const dy = by - ay
+    const segLen2 = dx * dx + dy * dy
+    let t = segLen2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / segLen2 : 0
+    t = Math.max(0, Math.min(1, t))
+    const off = Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+    if (off < best.off) best = { off, along: m.cum[i - 1] + t * Math.sqrt(segLen2) }
+  }
+  return { along: best.along, off: best.off, remaining: Math.max(0, m.total - best.along), total: m.total }
+}
+
+// --- Formatting (US units: miles + min/mi) ---
+const M_PER_MI = 1609.344
+const fmtDist = (m) => `${(m / M_PER_MI).toFixed(2)} mi`
+function fmtPace(secPerKm) {
+  if (!secPerKm || !isFinite(secPerKm)) return '—'
+  const secPerMi = secPerKm * 1.609344
+  const mm = Math.floor(secPerMi / 60)
+  const ss = Math.round(secPerMi % 60)
+  return `${mm}:${String(ss).padStart(2, '0')}`
+}
+function fmtDuration(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  if (m >= 60) {
+    const h = Math.floor(m / 60)
+    return `${h}:${String(m % 60).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  }
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+const fmtEta = (remainingM, secPerKm) =>
+  !secPerKm || !isFinite(secPerKm) ? '—' : fmtDuration((remainingM / 1000) * secPerKm * 1000)
+
 function routePin(label, color) {
   return L.divIcon({
     className: 'route-pin',
@@ -284,6 +343,9 @@ export default function LiveMap() {
     map.flyTo([myPos.lat, myPos.lng], Math.max(map.getZoom(), 16), { duration: 0.6 })
     setFollow(true)
   }
+  const me = myId ? runners.find((r) => r.id === myId) : null
+  const myProgress = me ? routeProgress({ lat: me.lat, lng: me.lng }) : null
+
   const statusText =
     mode === 'off'
       ? 'Not connected'
@@ -357,6 +419,47 @@ export default function LiveMap() {
           )}
           {error && <p className="live-error">⚠️ {error}</p>}
           {wsError && <p className="live-error">⚠️ {wsError}</p>}
+
+          {mode === 'sharing' && me && (
+            <div className="my-stats">
+              <h3>Your run</h3>
+              <div className="stat-grid">
+                <div className="stat">
+                  <span className="stat-value">{fmtDist(me.distance || 0)}</span>
+                  <span className="stat-label">Distance</span>
+                </div>
+                <div className="stat">
+                  <span className="stat-value">{fmtDuration(now - me.startedAt)}</span>
+                  <span className="stat-label">Time</span>
+                </div>
+                <div className="stat">
+                  <span className="stat-value">
+                    {fmtPace(me.paceSecPerKm)}
+                    <span className="stat-unit"> /mi</span>
+                  </span>
+                  <span className="stat-label">Pace</span>
+                </div>
+                {myProgress && (
+                  <>
+                    <div className="stat">
+                      <span className="stat-value">{fmtDist(myProgress.remaining)}</span>
+                      <span className="stat-label">Route left*</span>
+                    </div>
+                    <div className="stat">
+                      <span className="stat-value">{fmtEta(myProgress.remaining, me.paceSecPerKm)}</span>
+                      <span className="stat-label">Est. to finish*</span>
+                    </div>
+                  </>
+                )}
+              </div>
+              {myProgress && (
+                <p className="stat-foot">
+                  * estimated from your nearest point on the route
+                  {myProgress.off > 120 ? ` (you’re ~${Math.round(myProgress.off)} m off it)` : ''}.
+                </p>
+              )}
+            </div>
+          )}
 
           {ROUTE && (
             <label className="route-toggle">
@@ -461,8 +564,9 @@ export default function LiveMap() {
                 <tr>
                   <th></th>
                   <th>Runner</th>
+                  <th>Distance</th>
+                  <th>Pace</th>
                   <th>Last update</th>
-                  <th>Position</th>
                   <th></th>
                 </tr>
               </thead>
@@ -494,10 +598,11 @@ export default function LiveMap() {
                         {r.name || 'Runner'}
                         {isMe && <span className="you-badge">you</span>}
                       </td>
-                      <td>{ago(r.updated, now)}</td>
-                      <td className="roster-coords">
-                        {r.lat.toFixed(4)}, {r.lng.toFixed(4)}
+                      <td className="roster-num">{fmtDist(r.distance || 0)}</td>
+                      <td className="roster-num">
+                        {r.paceSecPerKm ? `${fmtPace(r.paceSecPerKm)} /mi` : '—'}
                       </td>
+                      <td>{ago(r.updated, now)}</td>
                       <td className="roster-locate" aria-hidden="true">📍</td>
                     </tr>
                   )
