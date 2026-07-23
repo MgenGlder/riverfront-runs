@@ -183,6 +183,26 @@ subpath (e.g. `username.github.io/riverfront-runs/`), set `base: '/riverfront-ru
 `vite.config.js`, then deploy `dist/`. The Live Map tab will show a connection error unless you
 also stand up the server (Option A/B).
 
+### Shutting the live server down after a run (scale to zero)
+With `min_machines_running = 0`, Fly stops the machine once **all connections
+close** — but a forgotten open tab keeps a WebSocket alive and the machine running.
+To force everyone off so it can idle-stop, there's an admin endpoint:
+
+```bash
+# one-time: set a secret token (also re-run to rotate it)
+fly secrets set ADMIN_TOKEN="your-long-random-token"
+
+# after a run: disconnect everyone
+curl -X POST -H "X-Admin-Token: your-long-random-token" \
+  https://riverfront-runs.fly.dev/admin/disconnect
+# -> {"ok":true,"closed":N}
+```
+
+Clients are closed with a code that tells them **not** to reconnect (they see
+“closed by the host” and can tap start to rejoin). With everyone off, Fly stops
+the machine within a few minutes. The endpoint returns `503` if `ADMIN_TOKEN`
+isn't set and `401` on a bad/missing token.
+
 ### Heads-up on free tiers
 Free plans on Render/Railway/Fly **sleep after inactivity** and reset in-memory state — fine
 for a live map (runners re-appear when they reconnect), but the first visitor after idle may

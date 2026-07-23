@@ -185,6 +185,7 @@ export default function LiveMap() {
   const [runners, setRunners] = useState([])
   const [error, setError] = useState('')
   const [wsError, setWsError] = useState('')
+  const [notice, setNotice] = useState('')
   const [now, setNow] = useState(Date.now())
   const [showRoute, setShowRoute] = useState(true)
   const [follow, setFollow] = useState(false)
@@ -227,6 +228,7 @@ export default function LiveMap() {
         everConnected = true
         setConnected(true)
         setWsError('')
+        setNotice('')
       }
       ws.onmessage = (e) => {
         let msg
@@ -238,8 +240,14 @@ export default function LiveMap() {
         if (msg.type === 'welcome') setMyId(msg.id)
         else if (msg.type === 'runners') setRunners(msg.runners)
       }
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
         setConnected(false)
+        // Host ended the session (admin disconnect): stop, don't reconnect.
+        if (ev.code === 4001) {
+          setNotice('The live map was closed by the host. Tap start to rejoin.')
+          setMode('off')
+          return
+        }
         if (!everConnected) {
           setWsError(
             `Couldn't reach the live server at ${WS_URL}. The Node server must be running and long-lived — a static host (e.g. plain Netlify) can't serve it. If the server is on another host, set VITE_WS_URL at build time.`,
@@ -419,6 +427,7 @@ export default function LiveMap() {
           )}
           {error && <p className="live-error">⚠️ {error}</p>}
           {wsError && <p className="live-error">⚠️ {wsError}</p>}
+          {notice && <p className="live-note">👋 {notice}</p>}
 
           {mode === 'sharing' && me && (
             <div className="my-stats">

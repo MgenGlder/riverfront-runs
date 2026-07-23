@@ -44,6 +44,15 @@ function isOriginAllowed(origin) {
   return ALLOWED_ORIGINS.includes(origin)
 }
 
+// Secret for the admin "disconnect everyone" endpoint. Set it with
+//   fly secrets set ADMIN_TOKEN="something-long-and-random"
+// If unset, the endpoint is disabled (no unauthenticated kill switch).
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || ''
+
+// Close code (4000–4999 = app-defined) telling clients the host ended the
+// session, so they should NOT auto-reconnect (which would keep the machine up).
+const CLOSE_HOST_ENDED = 4001
+
 // ---- Runner state (in memory only) ----
 const runners = new Map() // id -> { id, name, lat, lng, updated }
 let nextId = 1
@@ -88,6 +97,38 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/health' || urlPath === '/healthz') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ status: 'ok', runners: runners.size }))
+    return
+  }
+
+  // Admin: disconnect everyone so the machine can idle-stop (scale to zero).
+  // Clients are told not to reconnect. Requires the ADMIN_TOKEN via the
+  // X-Admin-Token header or ?token= query param.
+  if (urlPath === '/admin/disconnect') {
+    if (!ADMIN_TOKEN) {
+      res.writeHead(503, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'admin endpoint disabled; set ADMIN_TOKEN' }))
+      return
+    }
+    const url = new URL(req.url, 'http://localhost')
+    const token = req.headers['x-admin-token'] || url.searchParams.get('token') || ''
+    if (token !== ADMIN_TOKEN) {
+      res.writeHead(401, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'unauthorized' }))
+      return
+    }
+    let closed = 0
+    for (const client of wss.clients) {
+      try {
+        client.close(CLOSE_HOST_ENDED, 'run ended by host')
+        closed++
+      } catch {
+        /* ignore */
+      }
+    }
+    runners.clear()
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ ok: true, closed }))
+    console.log(`Admin disconnect: closed ${closed} connection(s)`)
     return
   }
 
