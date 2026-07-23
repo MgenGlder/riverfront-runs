@@ -74,6 +74,32 @@ src/
 - **Detail cards & FAQ:** the `DETAILS` and `FAQS` arrays in `src/config.js`.
 - **Colors:** CSS variables at the top of `src/styles.css` (`:root`).
 
+## Drawing the run route
+The Live Map overlays a fixed route (blue line + START/FINISH pins) from
+`src/route.json`, a GeoJSON file. It ships with a **placeholder** — replace it with your
+real path:
+
+1. Go to **[geojson.io](https://geojson.io)**.
+2. Pick the **line tool** (top-right toolbar) and click along the run path — start at the
+   Ren Cen meetup spot, follow the riverwalk, click each turn, double-click to finish.
+3. Copy the GeoJSON from the panel on the right and paste it over the contents of
+   `src/route.json` (keep the filename).
+4. Commit/redeploy — the map picks it up automatically, draws the line, drops START/FINISH
+   pins at the ends, and fits the view to the route.
+
+Notes:
+- GeoJSON stores coordinates as `[longitude, latitude]`; the app converts to Leaflet's
+  `[lat, lng]` for you, so just paste geojson.io's output as-is.
+- Only the **first `LineString`** is used. An out-and-back can retrace the same points; a
+  loop can end where it starts.
+- Runners can hide the overlay with the **“Show the run route”** toggle on the map panel.
+
+### Prefer a GPX file? (e.g. exported from a watch/Strava)
+GPX works **directly** — no conversion. Just drop your file in as **`src/route.gpx`** and
+commit/redeploy. If that file exists it takes priority over `src/route.json`; the app reads
+the track points (`<trkpt>`, falling back to `<rtept>`/`<wpt>`) and draws the same line +
+START/FINISH pins. Remove the file to fall back to the GeoJSON.
+
 ## Deploy
 
 > ### ⚠️ Live-map markers not showing after deploy?

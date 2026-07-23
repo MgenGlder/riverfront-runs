@@ -1,8 +1,65 @@
 import { useEffect, useRef, useState } from 'react'
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { MAP } from '../config.js'
+import routeGeo from '../route.json'
+
+const ROUTE_COLOR = '#1f6fb8'
+
+// Pull the first LineString out of a GeoJSON FeatureCollection / Feature /
+// geometry, and convert GeoJSON [lng, lat] pairs to Leaflet [lat, lng].
+function routeLatLngs(geo) {
+  const geoms = []
+  if (geo?.type === 'FeatureCollection') geo.features?.forEach((f) => geoms.push(f?.geometry))
+  else if (geo?.type === 'Feature') geoms.push(geo.geometry)
+  else geoms.push(geo)
+  const line = geoms.find((g) => g?.type === 'LineString' && g.coordinates?.length > 1)
+  return line ? line.coordinates.map(([lng, lat]) => [lat, lng]) : null
+}
+
+// Parse GPX track/route/waypoints (already in [lat, lon]) into Leaflet points.
+function gpxLatLngs(xml) {
+  const doc = new DOMParser().parseFromString(xml, 'application/xml')
+  if (doc.querySelector('parsererror')) return null
+  let nodes = [...doc.querySelectorAll('trkpt, rtept')]
+  if (nodes.length < 2) nodes = [...doc.querySelectorAll('wpt')]
+  const pts = nodes
+    .map((p) => [parseFloat(p.getAttribute('lat')), parseFloat(p.getAttribute('lon'))])
+    .filter(([lat, lng]) => Number.isFinite(lat) && Number.isFinite(lng))
+  return pts.length > 1 ? pts : null
+}
+
+// Optional: drop a GPX file at src/route.gpx and it takes priority over the
+// GeoJSON. import.meta.glob loads it if present, and yields {} if it isn't.
+const gpxRaw = Object.values(
+  import.meta.glob('../route.gpx', { query: '?raw', import: 'default', eager: true }),
+)[0]
+
+const ROUTE = (gpxRaw && gpxLatLngs(gpxRaw)) || routeLatLngs(routeGeo)
+
+function routePin(label, color) {
+  return L.divIcon({
+    className: 'route-pin',
+    html: `<span class="route-pin-badge" style="--c:${color}">${label}</span>`,
+    iconSize: [46, 22],
+    iconAnchor: [23, 11],
+    popupAnchor: [0, -12],
+  })
+}
+
+// Fit the map to the route once on load (until the user's own fix takes over).
+function FitRoute({ latlngs, active }) {
+  const map = useMap()
+  const done = useRef(false)
+  useEffect(() => {
+    if (active && latlngs && !done.current) {
+      map.fitBounds(L.latLngBounds(latlngs), { padding: [40, 40] })
+      done.current = true
+    }
+  }, [active, latlngs, map])
+  return null
+}
 
 // Connect same-origin (dev: Vite proxies /ws → :3001; prod: same Node server).
 // If the live server lives on a DIFFERENT host than the page (e.g. site on
@@ -55,6 +112,7 @@ export default function LiveMap() {
   const [error, setError] = useState('')
   const [wsError, setWsError] = useState('')
   const [now, setNow] = useState(Date.now())
+  const [showRoute, setShowRoute] = useState(true)
 
   const wsRef = useRef(null)
   const lastPosRef = useRef(null) // last GPS fix, re-sent by the heartbeat
@@ -243,6 +301,17 @@ export default function LiveMap() {
           {error && <p className="live-error">⚠️ {error}</p>}
           {wsError && <p className="live-error">⚠️ {wsError}</p>}
 
+          {ROUTE && (
+            <label className="route-toggle">
+              <input
+                type="checkbox"
+                checked={showRoute}
+                onChange={(e) => setShowRoute(e.target.checked)}
+              />
+              <span>Show the run route</span>
+            </label>
+          )}
+
           <p className="live-privacy">
             🔒 <strong>Your privacy:</strong> sharing is opt-in and stops the moment you press
             “Stop” or close this tab. Locations are kept in memory only, never saved, and disappear
@@ -263,6 +332,21 @@ export default function LiveMap() {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
             <RecenterOnce pos={myPos} />
+            {ROUTE && showRoute && (
+              <>
+                <FitRoute latlngs={ROUTE} active={!myPos} />
+                <Polyline
+                  positions={ROUTE}
+                  pathOptions={{ color: ROUTE_COLOR, weight: 5, opacity: 0.85 }}
+                />
+                <Marker position={ROUTE[0]} icon={routePin('START', '#37c26b')}>
+                  <Popup>Start</Popup>
+                </Marker>
+                <Marker position={ROUTE[ROUTE.length - 1]} icon={routePin('FINISH', '#e0533d')}>
+                  <Popup>Finish</Popup>
+                </Marker>
+              </>
+            )}
             {runners.map((r) => {
               const isMe = r.id === myId
               return (

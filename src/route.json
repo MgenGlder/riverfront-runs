@@ -1,0 +1,22 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Riverfront Run route — PLACEHOLDER, replace with your real path"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-83.0466, 42.3312],
+          [-83.0430, 42.3302],
+          [-83.0396, 42.3294],
+          [-83.0355, 42.3299],
+          [-83.0312, 42.3311],
+          [-83.0268, 42.3322]
+        ]
+      }
+    }
+  ]
+}
