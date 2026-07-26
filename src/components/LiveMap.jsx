@@ -219,7 +219,7 @@ function StopFollowOnDrag({ onUserPan }) {
 }
 
 export default function LiveMap() {
-  const [name, setName] = useState('')
+  const [name, setName] = useState(() => loadSession()?.name || '')
   const [mode, setMode] = useState('off') // 'off' | 'sharing' | 'watching'
   const [connected, setConnected] = useState(false)
   const [myId, setMyId] = useState(null)
@@ -462,7 +462,9 @@ export default function LiveMap() {
     setMode('sharing')
   }
   const startFresh = () => {
-    beginRun({ sessionId: newSessionId(), name: nameRef.current, startedAt: Date.now(), distance: 0 })
+    const trimmed = (nameRef.current || '').trim()
+    if (!trimmed) return // name is required — no default
+    beginRun({ sessionId: newSessionId(), name: trimmed, startedAt: Date.now(), distance: 0 })
   }
   const resumeRun = () => {
     if (session) beginRun({ ...session, name: nameRef.current || session.name })
@@ -485,6 +487,7 @@ export default function LiveMap() {
   const myStats = me ? routeStats(me.distance || 0) : null
   const myOff = me ? offRouteMeters({ lat: me.lat, lng: me.lng }) : null
   const resumable = !!session && isResumable(session)
+  const hasName = name.trim().length > 0
 
   // Detect crossing a whole mile so we can celebrate it. Based on distance run
   // (odometer), which is monotonic — so it fires once per mile, in order.
@@ -538,12 +541,14 @@ export default function LiveMap() {
       <div className="live-body container">
         <aside className="live-panel">
           <label className="field">
-            <span>Display name</span>
+            <span>Display name <span className="req">(required)</span></span>
             <input
               type="text"
               placeholder="e.g. Kunle"
               value={name}
               maxLength={24}
+              required
+              aria-required="true"
               onChange={(e) => setName(e.target.value)}
               disabled={mode !== 'off'}
             />
@@ -565,9 +570,15 @@ export default function LiveMap() {
           )}
           {mode === 'off' && !resumable && (
             <>
-              <button className="btn btn-lg live-btn" onClick={startFresh}>
+              <button
+                className="btn btn-lg live-btn"
+                onClick={startFresh}
+                disabled={!hasName}
+                title={hasName ? '' : 'Enter your name first'}
+              >
                 Start sharing my location
               </button>
+              {!hasName && <p className="field-hint">Enter your name to start sharing.</p>}
               <button className="btn live-btn live-btn-secondary" onClick={() => setMode('watching')}>
                 Just watch the map
               </button>

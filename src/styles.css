@@ -363,6 +363,10 @@ a:hover { text-decoration: underline; }
 }
 .field input:focus { outline: none; border-color: var(--blue-400); box-shadow: 0 0 0 3px var(--ring); }
 .field input:disabled { background: var(--off); color: var(--muted); }
+.field .req { font-weight: 600; color: var(--blue-500); font-size: 0.82rem; }
+.field-hint { margin: 8px 0 0; font-size: 0.85rem; color: var(--muted); }
+.live-btn:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+.live-btn:disabled:hover { background: var(--blue-500); transform: none; }
 
 .live-btn { width: 100%; text-align: center; border: none; cursor: pointer; font: inherit; font-weight: 700; }
 .live-btn-secondary {

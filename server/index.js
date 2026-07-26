@@ -236,7 +236,8 @@ wss.on('connection', (ws) => {
       const lat = Number(msg.lat)
       const lng = Number(msg.lng)
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
-      const name = String(msg.name || 'Runner').trim().slice(0, MAX_NAME) || 'Runner'
+      const name = String(msg.name || '').trim().slice(0, MAX_NAME)
+      if (!name) return // a name is required — no default, ignore nameless updates
       const now = Date.now()
       // Key the runner by session id when provided, so reconnects map to the
       // same record (no duplicate markers) and distance carries over.
