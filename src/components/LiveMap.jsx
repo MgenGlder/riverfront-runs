@@ -270,8 +270,10 @@ export default function LiveMap() {
     let closedByUs = false
     let reconnectTimer
     let everConnected = false
+    let attempts = 0
 
     const connect = () => {
+      attempts += 1
       const ws = new WebSocket(WS_URL)
       wsRef.current = ws
       ws.onopen = () => {
@@ -304,7 +306,9 @@ export default function LiveMap() {
           setMode('off')
           return
         }
-        if (!everConnected) {
+        // Only surface the error after a few tries — a cold-start wake-up can
+        // take several seconds and shouldn't flash a scary message.
+        if (!everConnected && attempts >= 3) {
           setWsError(
             `Couldn't reach the live server at ${WS_URL}. The Node server must be running and long-lived — a static host (e.g. plain Netlify) can't serve it. If the server is on another host, set VITE_WS_URL at build time.`,
           )
@@ -517,6 +521,7 @@ export default function LiveMap() {
     return () => clearTimeout(t)
   }, [mileReached])
 
+  const connecting = mode !== 'off' && !connected
   const statusText =
     mode === 'off'
       ? 'Not connected'
@@ -601,14 +606,23 @@ export default function LiveMap() {
           )}
 
           <div className="live-status">
-            <span className={`status-dot ${mode !== 'off' && connected ? 'on' : 'off'}`} />
+            {connecting ? (
+              <span className="spinner" aria-hidden="true" />
+            ) : (
+              <span className={`status-dot ${mode !== 'off' && connected ? 'on' : 'off'}`} />
+            )}
             {statusText}
           </div>
 
-          {mode === 'watching' && (
+          {connecting && (
+            <p className="live-note">
+              ⏳ Waking up the live server — it sleeps when idle, so this can take a few seconds.
+            </p>
+          )}
+          {mode === 'watching' && connected && (
             <p className="live-note">👀 Watch mode — your location is not being shared.</p>
           )}
-          {mode === 'sharing' && (
+          {mode === 'sharing' && connected && (
             <p className="live-note">
               📱 Keep this tab open with your screen on — we keep the screen awake while you share.
               If you close it, switch apps, or your screen locks, tracking <strong>pauses</strong>
@@ -774,6 +788,13 @@ export default function LiveMap() {
           {mode === 'off' && (
             <div className="live-map-overlay">
               <p>Start sharing or watch the map to see who’s out running.</p>
+            </div>
+          )}
+          {connecting && (
+            <div className="live-map-overlay live-map-loading">
+              <span className="spinner spinner-lg" aria-hidden="true" />
+              <p>Connecting to the live map…</p>
+              <p className="loading-sub">Waking the server — a few seconds.</p>
             </div>
           )}
         </div>
