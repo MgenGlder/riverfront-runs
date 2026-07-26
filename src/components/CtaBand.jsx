@@ -1,14 +1,15 @@
-import { NEXT_EVENT_URL } from '../config.js'
 import { GOOGLE_CAL_URL, downloadIcs } from '../calendar.js'
+import { useEventInfo } from '../eventContext.jsx'
 
 export default function CtaBand() {
+  const { eventUrl } = useEventInfo()
   return (
     <section className="cta-band">
       <div className="container">
         <h2>See you Sunday!</h2>
         <p>Lace up, show up, and let's run Detroit together.</p>
         <div className="cta-buttons">
-          <a className="btn btn-lg btn-light" href={NEXT_EVENT_URL} target="_blank" rel="noopener">
+          <a className="btn btn-lg btn-light" href={eventUrl} target="_blank" rel="noopener">
             RSVP on Meetup
           </a>
           <a className="btn btn-lg btn-ghost" href={GOOGLE_CAL_URL} target="_blank" rel="noopener">

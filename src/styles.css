@@ -191,6 +191,46 @@ a:hover { text-decoration: underline; }
 .card-lead { color: var(--blue-500); font-weight: 700; margin: 4px 0 8px; }
 .card p { color: var(--muted); font-size: 0.96rem; margin: 0; }
 
+/* ===== Attendance (live "who's coming") ===== */
+.attendance { background: #fff; padding: 64px 0; }
+.attendance-inner { text-align: center; }
+.attendance h2 {
+  font-size: clamp(2rem, 5vw, 3rem);
+  text-transform: uppercase;
+  color: var(--navy-800);
+  margin: 6px 0 6px;
+}
+.attend-count { color: var(--blue-400); }
+.attend-when { color: var(--muted); font-weight: 500; margin: 0 0 20px; }
+.avatars {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin: 8px 0 14px;
+}
+.avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  color: #fff;
+  background: linear-gradient(150deg, var(--blue-400), var(--blue-600));
+  box-shadow: 0 3px 10px rgba(31, 111, 184, 0.3);
+  border: 2px solid #fff;
+}
+.avatar:nth-child(even) { background: linear-gradient(150deg, var(--blue-500), var(--navy-700)); }
+.avatar:nth-child(3n) { background: linear-gradient(150deg, #5aa9e6, var(--blue-600)); }
+.avatar-more {
+  font-size: 0.95rem;
+  font-weight: 700;
+  background: var(--navy-800);
+}
+.attend-note { color: var(--muted); font-size: 0.86rem; margin: 0 0 22px; }
+
 /* ===== About ===== */
 .about { background: linear-gradient(180deg, var(--sky-050), #fff); padding: 84px 0; }
 .about-grid {

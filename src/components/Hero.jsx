@@ -1,6 +1,9 @@
-import { MEETUP_GROUP_URL, NEXT_EVENT_URL } from '../config.js'
+import { MEETUP_GROUP_URL } from '../config.js'
+import { useEventInfo, formatEvent } from '../eventContext.jsx'
 
 export default function Hero({ onNavigate }) {
+  const { event, eventUrl } = useEventInfo()
+  const when = event?.dateTime ? formatEvent(event.dateTime) : null
   return (
     <section className="hero" id="top">
       <div className="hero-inner container">
@@ -15,7 +18,7 @@ export default function Hero({ onNavigate }) {
           Come for the run, stay for the community.
         </p>
         <div className="hero-cta">
-          <a className="btn btn-lg" href={NEXT_EVENT_URL} target="_blank" rel="noopener">
+          <a className="btn btn-lg" href={eventUrl} target="_blank" rel="noopener">
             RSVP for this Sunday
           </a>
           <a className="btn btn-lg btn-ghost" href={MEETUP_GROUP_URL} target="_blank" rel="noopener">
@@ -23,7 +26,11 @@ export default function Hero({ onNavigate }) {
           </a>
         </div>
         <p className="hero-when">
-          🗓️ Every Sunday · 2:00 PM &nbsp;•&nbsp; 📍 Detroit Riverfront, in front of the Ren Cen
+          🗓️{' '}
+          {when
+            ? `Next run · ${when.weekday}, ${when.date} · ${when.time}`
+            : 'Every Sunday · 2:00 PM'}
+          &nbsp;•&nbsp; 📍 Detroit Riverfront, in front of the Ren Cen
         </p>
         <button type="button" className="hero-live-link" onClick={() => onNavigate('live')}>
           Running today? Share your location on the Live Map →

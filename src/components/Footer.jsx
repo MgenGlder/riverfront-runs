@@ -1,6 +1,8 @@
-import { MEETUP_GROUP_URL, NEXT_EVENT_URL } from '../config.js'
+import { MEETUP_GROUP_URL } from '../config.js'
+import { useEventInfo } from '../eventContext.jsx'
 
 export default function Footer() {
+  const { eventUrl } = useEventInfo()
   return (
     <footer className="site-footer">
       <div className="container footer-inner">
@@ -9,7 +11,7 @@ export default function Footer() {
           <a href={MEETUP_GROUP_URL} target="_blank" rel="noopener">
             Meetup Group
           </a>
-          <a href={NEXT_EVENT_URL} target="_blank" rel="noopener">
+          <a href={eventUrl} target="_blank" rel="noopener">
             Next Run
           </a>
         </div>

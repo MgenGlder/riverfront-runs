@@ -1,6 +1,7 @@
-import { NEXT_EVENT_URL } from '../config.js'
+import { useEventInfo } from '../eventContext.jsx'
 
 export default function About() {
+  const { eventUrl } = useEventInfo()
   return (
     <section className="about" id="about">
       <div className="container about-grid">
@@ -26,7 +27,7 @@ export default function About() {
             <li>Scenic, flat riverfront route</li>
             <li>A community that sticks around after the finish</li>
           </ul>
-          <a className="btn" href={NEXT_EVENT_URL} target="_blank" rel="noopener">
+          <a className="btn" href={eventUrl} target="_blank" rel="noopener">
             Join this Sunday's run
           </a>
         </div>

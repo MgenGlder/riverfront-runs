@@ -1,6 +1,7 @@
-import { NEXT_EVENT_URL } from '../config.js'
+import { useEventInfo } from '../eventContext.jsx'
 
 export default function Header({ view, onNavigate }) {
+  const { eventUrl } = useEventInfo()
   const onLive = view === 'live'
   return (
     <header className="site-header">
@@ -30,7 +31,7 @@ export default function Header({ view, onNavigate }) {
           >
             {onLive ? '← Home' : '📍 Live Map'}
           </button>
-          <a className="btn btn-sm" href={NEXT_EVENT_URL} target="_blank" rel="noopener">
+          <a className="btn btn-sm" href={eventUrl} target="_blank" rel="noopener">
             Join Sunday
           </a>
         </div>
