@@ -4,6 +4,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { MAP } from '../config.js'
 import routeGeo from '../route.json'
+import { newSessionId, loadSession, saveSession, clearSession, isResumable } from '../runSession.js'
 
 const ROUTE_COLOR = '#1f6fb8'
 
@@ -220,9 +221,15 @@ export default function LiveMap() {
   const [showRoute, setShowRoute] = useState(true)
   const [follow, setFollow] = useState(false)
   const [mileReached, setMileReached] = useState(0) // mile just crossed, 0 = none
+  const [session, setSession] = useState(() => loadSession()) // persisted run, if any
+  const [finishSummary, setFinishSummary] = useState(null) // {distance, durationMs, paceSecPerKm}
 
   const wsRef = useRef(null)
   const lastPosRef = useRef(null) // last GPS fix, re-sent by the heartbeat
+  const runIdRef = useRef(null) // stable session id for the active run
+  const startedAtRef = useRef(null) // active run start time (ms)
+  const myDistanceRef = useRef(0) // latest known distance for this run (m)
+  const sendResumeRef = useRef(false) // send the resume baseline on next update
   const maxMileRef = useRef(0) // highest whole mile reached this session
   const mapRef = useRef(null) // Leaflet map instance
   const markerRefs = useRef({}) // runner id -> Leaflet marker
@@ -261,6 +268,9 @@ export default function LiveMap() {
         setConnected(true)
         setWsError('')
         setNotice('')
+        // Re-send the resume baseline on the first update after every (re)connect
+        // so a dropped/reopened session continues its distance instead of resetting.
+        sendResumeRef.current = sharing
       }
       ws.onmessage = (e) => {
         let msg
@@ -269,8 +279,11 @@ export default function LiveMap() {
         } catch {
           return
         }
-        if (msg.type === 'welcome') setMyId(msg.id)
-        else if (msg.type === 'runners') setRunners(msg.runners)
+        if (msg.type === 'runners') {
+          setRunners(msg.runners)
+          const mine = msg.runners.find((r) => r.id === runIdRef.current)
+          if (mine) myDistanceRef.current = mine.distance
+        }
       }
       ws.onclose = (ev) => {
         setConnected(false)
@@ -293,9 +306,19 @@ export default function LiveMap() {
 
     const sendPos = (p) => {
       const ws = wsRef.current
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'update', name: nameRef.current, lat: p.lat, lng: p.lng }))
+      if (!ws || ws.readyState !== WebSocket.OPEN) return
+      const payload = {
+        type: 'update',
+        name: nameRef.current,
+        lat: p.lat,
+        lng: p.lng,
+        sessionId: runIdRef.current,
       }
+      if (sendResumeRef.current) {
+        payload.resume = { distance: myDistanceRef.current || 0, startedAt: startedAtRef.current || Date.now() }
+        sendResumeRef.current = false
+      }
+      ws.send(JSON.stringify(payload))
     }
 
     let watchId
@@ -368,6 +391,35 @@ export default function LiveMap() {
     }
   }, [mode])
 
+  // Persist the run to the device while sharing, so a close/reopen can resume.
+  useEffect(() => {
+    if (mode !== 'sharing' || !runIdRef.current) return
+    const save = () =>
+      saveSession({
+        sessionId: runIdRef.current,
+        name: nameRef.current,
+        startedAt: startedAtRef.current,
+        distance: myDistanceRef.current || 0,
+      })
+    save()
+    const t = setInterval(save, 4000)
+    return () => {
+      save()
+      clearInterval(t)
+    }
+  }, [mode])
+
+  // Warn before closing/refreshing while actively tracking (it pauses the run).
+  useEffect(() => {
+    if (mode !== 'sharing') return
+    const handler = (e) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [mode])
+
   const activeCount = runners.length
 
   // Clicking a roster row flies the map to that runner and opens their popup.
@@ -385,8 +437,42 @@ export default function LiveMap() {
     map.flyTo([myPos.lat, myPos.lng], Math.max(map.getZoom(), 16), { duration: 0.6 })
     setFollow(true)
   }
+
+  // Begin tracking a run under a given session (fresh or resumed).
+  const beginRun = (s) => {
+    runIdRef.current = s.sessionId
+    startedAtRef.current = s.startedAt
+    myDistanceRef.current = s.distance || 0
+    maxMileRef.current = Math.floor((s.distance || 0) / M_PER_MI)
+    setMyId(s.sessionId)
+    setFinishSummary(null)
+    setSession(s)
+    saveSession(s)
+    setMode('sharing')
+  }
+  const startFresh = () => {
+    beginRun({ sessionId: newSessionId(), name: nameRef.current, startedAt: Date.now(), distance: 0 })
+  }
+  const resumeRun = () => {
+    if (session) beginRun({ ...session, name: nameRef.current || session.name })
+  }
+  // Pause: stop sending but keep the saved run so it can be resumed later.
+  const pauseRun = () => setMode('off')
+  // Finish: end the run, clear the saved session, and show a summary.
+  const finishRun = () => {
+    const dist = me?.distance ?? session?.distance ?? myDistanceRef.current ?? 0
+    const start = startedAtRef.current ?? session?.startedAt ?? Date.now()
+    const durationMs = Date.now() - start
+    const paceSecPerKm = dist > 20 ? (durationMs / 1000 / dist) * 1000 : null
+    if (dist > 0) setFinishSummary({ distance: dist, durationMs, paceSecPerKm })
+    clearSession()
+    setSession(null)
+    setMode('off')
+  }
+
   const me = myId ? runners.find((r) => r.id === myId) : null
   const myProgress = me ? routeProgress({ lat: me.lat, lng: me.lng }) : null
+  const resumable = !!session && isResumable(session)
 
   // Detect crossing a whole mile so we can celebrate it. Track the max mile
   // reached (not the current one) so GPS jitter near a marker can't re-trigger.
@@ -451,9 +537,23 @@ export default function LiveMap() {
             />
           </label>
 
-          {mode === 'off' && (
+          {mode === 'off' && resumable && (
+            <div className="resume-card">
+              <p className="resume-lead">
+                🏃 Run in progress — <strong>{fmtDist(session.distance || 0)}</strong> so far.
+                It was paused when you left; pick up where you stopped.
+              </p>
+              <button className="btn btn-lg live-btn" onClick={resumeRun}>
+                Resume run
+              </button>
+              <button className="btn live-btn live-btn-secondary" onClick={finishRun}>
+                Finish run
+              </button>
+            </div>
+          )}
+          {mode === 'off' && !resumable && (
             <>
-              <button className="btn btn-lg live-btn" onClick={() => setMode('sharing')}>
+              <button className="btn btn-lg live-btn" onClick={startFresh}>
                 Start sharing my location
               </button>
               <button className="btn live-btn live-btn-secondary" onClick={() => setMode('watching')}>
@@ -462,9 +562,14 @@ export default function LiveMap() {
             </>
           )}
           {mode === 'sharing' && (
-            <button className="btn btn-lg btn-stop live-btn" onClick={() => setMode('off')}>
-              Stop sharing
-            </button>
+            <div className="share-actions">
+              <button className="btn btn-lg live-btn" onClick={finishRun}>
+                Finish run
+              </button>
+              <button className="btn live-btn live-btn-secondary" onClick={pauseRun}>
+                Pause (keep my run)
+              </button>
+            </div>
           )}
           {mode === 'watching' && (
             <button className="btn btn-lg btn-stop live-btn" onClick={() => setMode('off')}>
@@ -482,14 +587,34 @@ export default function LiveMap() {
           )}
           {mode === 'sharing' && (
             <p className="live-note">
-              📱 Keep this tab open with your screen on. We keep the screen awake while you share,
-              but phone browsers pause location if the screen locks or you switch apps — you’ll
-              reappear when you come back.
+              📱 Keep this tab open with your screen on — we keep the screen awake while you share.
+              If you close it, switch apps, or your screen locks, tracking <strong>pauses</strong>
+              {' '}(it doesn’t end): your run is saved on this device and you can <strong>resume</strong>
+              {' '}it when you come back. Tap <strong>Finish run</strong> when you’re actually done.
             </p>
           )}
           {error && <p className="live-error">⚠️ {error}</p>}
           {wsError && <p className="live-error">⚠️ {wsError}</p>}
           {notice && <p className="live-note">👋 {notice}</p>}
+          {finishSummary && (
+            <div className="finish-card">
+              <button
+                className="finish-close"
+                onClick={() => setFinishSummary(null)}
+                aria-label="Dismiss"
+              >
+                ×
+              </button>
+              <h3>Run finished 🎉</h3>
+              <p>
+                <strong>{fmtDist(finishSummary.distance)}</strong> in{' '}
+                <strong>{fmtDuration(finishSummary.durationMs)}</strong>
+                {finishSummary.paceSecPerKm
+                  ? ` · ${fmtPace(finishSummary.paceSecPerKm)} /mi avg`
+                  : ''}
+              </p>
+            </div>
+          )}
 
           {mode === 'sharing' && me && (
             <div className="my-stats">

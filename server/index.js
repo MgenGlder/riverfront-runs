@@ -211,11 +211,18 @@ function broadcast() {
   }
 }
 
+// A client may supply a stable session id so a reconnect (or a browser
+// close/reopen mid-run) continues the SAME run instead of starting over.
+function validSessionId(v) {
+  return typeof v === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(v) ? v : null
+}
+
 wss.on('connection', (ws) => {
-  const id = String(nextId++)
+  const connId = String(nextId++)
   ws.isAlive = true
+  ws.sessionKey = null // set once the client sends its first update
   ws.on('pong', () => { ws.isAlive = true })
-  ws.send(JSON.stringify({ type: 'welcome', id }))
+  ws.send(JSON.stringify({ type: 'welcome', id: connId }))
   broadcast() // send the new client the current roster
 
   ws.on('message', (raw) => {
@@ -231,17 +238,34 @@ wss.on('connection', (ws) => {
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
       const name = String(msg.name || 'Runner').trim().slice(0, MAX_NAME) || 'Runner'
       const now = Date.now()
-      const prev = runners.get(id)
+      // Key the runner by session id when provided, so reconnects map to the
+      // same record (no duplicate markers) and distance carries over.
+      const key = validSessionId(msg.sessionId) || connId
+      ws.sessionKey = key
+      const prev = runners.get(key)
 
-      const startedAt = prev?.startedAt || now
-      let distance = prev?.distance || 0
-      let samples = prev?.samples || []
+      let startedAt
+      let distance
+      let samples
 
       if (prev) {
+        // Continuing an existing record (same session still on the server).
+        startedAt = prev.startedAt
+        distance = prev.distance
+        samples = prev.samples
         const step = haversine(prev.lat, prev.lng, lat, lng)
         // Add real movement only; drop jitter (heartbeats resend the same
         // point, step ~0) and implausible single-fix jumps.
         if (step >= MIN_STEP_M && step <= MAX_STEP_M) distance += step
+      } else {
+        // First update on this key. Seed from the client's resume baseline if
+        // present (browser was closed and the old record was pruned), else 0.
+        const r = msg.resume
+        const resumeDist = r && Number.isFinite(Number(r.distance)) ? Math.max(0, Number(r.distance)) : 0
+        const resumeStart = r && Number.isFinite(Number(r.startedAt)) ? Number(r.startedAt) : now
+        distance = resumeDist
+        startedAt = Math.min(resumeStart, now)
+        samples = []
       }
 
       // Rolling pace over the last PACE_WINDOW_MS of cumulative distance.
@@ -255,15 +279,19 @@ wss.on('connection', (ws) => {
         if (dMeters > 20 && dSec > 0) paceSecPerKm = (dSec / dMeters) * 1000
       }
 
-      runners.set(id, { id, name, lat, lng, updated: now, distance, startedAt, samples, paceSecPerKm })
+      runners.set(key, { id: key, name, lat, lng, updated: now, distance, startedAt, samples, paceSecPerKm, owner: ws })
       broadcast()
     } else if (msg.type === 'leave') {
-      if (runners.delete(id)) broadcast()
+      // Only remove if this connection still owns the record (a newer
+      // reconnect may have taken it over).
+      const key = ws.sessionKey
+      if (key && runners.get(key)?.owner === ws && runners.delete(key)) broadcast()
     }
   })
 
   ws.on('close', () => {
-    if (runners.delete(id)) broadcast()
+    const key = ws.sessionKey
+    if (key && runners.get(key)?.owner === ws && runners.delete(key)) broadcast()
   })
 })
 
