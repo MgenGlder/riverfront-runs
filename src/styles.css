@@ -142,12 +142,38 @@ a:hover { text-decoration: underline; }
   max-width: 620px;
   margin: 18px auto 0;
 }
+.hero-attend {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  margin: 20px 0 4px;
+  padding: 7px 18px 7px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-weight: 600;
+  font-size: 1rem;
+}
+.hero-attend:hover { background: rgba(255, 255, 255, 0.16); text-decoration: none; }
+.hero-attend strong { color: var(--blue-300); }
+.hero-attend-dots { display: inline-flex; }
+.hero-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  margin-right: -8px;
+  border: 2px solid var(--navy-800);
+  background: linear-gradient(150deg, var(--blue-300), var(--blue-600));
+}
+.hero-dot:last-child { margin-right: 0; }
+
 .hero-cta {
   display: flex;
   gap: 16px;
   justify-content: center;
   flex-wrap: wrap;
-  margin: 34px 0 22px;
+  margin: 22px 0 22px;
 }
 .hero-when {
   font-size: 0.98rem;

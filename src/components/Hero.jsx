@@ -17,6 +17,19 @@ export default function Hero({ onNavigate }) {
           <br />
           Come for the run, stay for the community.
         </p>
+        {event?.going != null && (
+          <a className="hero-attend" href={eventUrl} target="_blank" rel="noopener">
+            <span className="hero-attend-dots" aria-hidden="true">
+              {Array.from({ length: Math.min(event.going, 5) }).map((_, i) => (
+                <span className="hero-dot" key={i} />
+              ))}
+            </span>
+            <span>
+              <strong>{event.going}</strong> {event.going === 1 ? 'runner is' : 'runners are'} in for
+              {when ? ` ${when.weekday}` : ' this Sunday'}
+            </span>
+          </a>
+        )}
         <div className="hero-cta">
           <a className="btn btn-lg" href={eventUrl} target="_blank" rel="noopener">
             RSVP for this Sunday
