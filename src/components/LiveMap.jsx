@@ -55,12 +55,24 @@ function buildRouteMetrics(latlngs) {
 }
 const ROUTE_METRICS = buildRouteMetrics(ROUTE)
 
-function routeProgress(pos) {
+// Progress along the route from the ODOMETER (cumulative distance run), NOT raw
+// position. On a loop the start ≈ finish, so position alone can't tell "just
+// starting" from "about to finish" — but distance run is monotonic, so it can.
+function routeStats(distanceMeters) {
+  const m = ROUTE_METRICS
+  if (!m) return null
+  const d = Math.max(0, distanceMeters || 0)
+  return { along: Math.min(d, m.total), remaining: Math.max(0, m.total - d), total: m.total }
+}
+
+// How far a position is from the nearest point on the route (meters). Position
+// is only used for this "off-route" hint, where the loop ambiguity doesn't matter.
+function offRouteMeters(pos) {
   const m = ROUTE_METRICS
   if (!m || !pos) return null
   const px = (pos.lng - m.lng0) * m.mPerLng
   const py = (pos.lat - m.lat0) * m.mPerLat
-  let best = { off: Infinity, along: 0 }
+  let best = Infinity
   for (let i = 1; i < m.xy.length; i++) {
     const [ax, ay] = m.xy[i - 1]
     const [bx, by] = m.xy[i]
@@ -69,10 +81,9 @@ function routeProgress(pos) {
     const segLen2 = dx * dx + dy * dy
     let t = segLen2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / segLen2 : 0
     t = Math.max(0, Math.min(1, t))
-    const off = Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
-    if (off < best.off) best = { off, along: m.cum[i - 1] + t * Math.sqrt(segLen2) }
+    best = Math.min(best, Math.hypot(px - (ax + t * dx), py - (ay + t * dy)))
   }
-  return { along: best.along, off: best.off, remaining: Math.max(0, m.total - best.along), total: m.total }
+  return best
 }
 
 // --- Formatting (US units: miles + min/mi) ---
@@ -471,12 +482,13 @@ export default function LiveMap() {
   }
 
   const me = myId ? runners.find((r) => r.id === myId) : null
-  const myProgress = me ? routeProgress({ lat: me.lat, lng: me.lng }) : null
+  const myStats = me ? routeStats(me.distance || 0) : null
+  const myOff = me ? offRouteMeters({ lat: me.lat, lng: me.lng }) : null
   const resumable = !!session && isResumable(session)
 
-  // Detect crossing a whole mile so we can celebrate it. Track the max mile
-  // reached (not the current one) so GPS jitter near a marker can't re-trigger.
-  const myMilesDone = myProgress ? Math.floor(myProgress.along / M_PER_MI) : null
+  // Detect crossing a whole mile so we can celebrate it. Based on distance run
+  // (odometer), which is monotonic — so it fires once per mile, in order.
+  const myMilesDone = me ? Math.floor((me.distance || 0) / M_PER_MI) : null
   useEffect(() => {
     if (myMilesDone == null) return
     if (myMilesDone > maxMileRef.current) {
@@ -635,23 +647,23 @@ export default function LiveMap() {
                   </span>
                   <span className="stat-label">Pace</span>
                 </div>
-                {myProgress && (
+                {myStats && (
                   <>
                     <div className="stat">
-                      <span className="stat-value">{fmtDist(myProgress.remaining)}</span>
+                      <span className="stat-value">{fmtDist(myStats.remaining)}</span>
                       <span className="stat-label">Route left*</span>
                     </div>
                     <div className="stat">
-                      <span className="stat-value">{fmtEta(myProgress.remaining, me.paceSecPerKm)}</span>
+                      <span className="stat-value">{fmtEta(myStats.remaining, me.paceSecPerKm)}</span>
                       <span className="stat-label">Est. to finish*</span>
                     </div>
                   </>
                 )}
               </div>
-              {myProgress && (
+              {myStats && (
                 <p className="stat-foot">
-                  * estimated from your nearest point on the route
-                  {myProgress.off > 120 ? ` (you’re ~${Math.round(myProgress.off)} m off it)` : ''}.
+                  * based on distance run of the ~{myStats.total ? (myStats.total / M_PER_MI).toFixed(1) : ''} mi
+                  route{myOff != null && myOff > 120 ? ` — you’re ~${Math.round(myOff)} m off the line` : ''}.
                 </p>
               )}
             </div>
@@ -785,7 +797,10 @@ export default function LiveMap() {
               <tbody>
                 {runners.map((r) => {
                   const isMe = r.id === myId
-                  const prog = ROUTE_METRICS ? routeProgress({ lat: r.lat, lng: r.lng }) : null
+                  const dist = r.distance || 0
+                  const stats = ROUTE_METRICS ? routeStats(dist) : null
+                  const mileNum = Math.min(Math.ceil(ROUTE_TOTAL_MI), Math.floor(dist / M_PER_MI) + 1)
+                  const mileFrac = ((dist % M_PER_MI) / M_PER_MI) * 100
                   return (
                     <tr
                       key={r.id}
@@ -817,24 +832,16 @@ export default function LiveMap() {
                       </td>
                       {ROUTE_METRICS && (
                         <td>
-                          {prog ? (
-                            <div className="mile-cell">
-                              <span className="mile-pill">
-                                Mile {Math.min(Math.ceil(ROUTE_TOTAL_MI), Math.floor(prog.along / M_PER_MI) + 1)}
-                              </span>
-                              <span className="mile-bar">
-                                <span
-                                  style={{ width: `${(((prog.along % M_PER_MI) / M_PER_MI) * 100).toFixed(0)}%` }}
-                                />
-                              </span>
-                            </div>
-                          ) : (
-                            '—'
-                          )}
+                          <div className="mile-cell">
+                            <span className="mile-pill">Mile {mileNum}</span>
+                            <span className="mile-bar">
+                              <span style={{ width: `${mileFrac.toFixed(0)}%` }} />
+                            </span>
+                          </div>
                         </td>
                       )}
                       {ROUTE_METRICS && (
-                        <td className="roster-num">{prog ? fmtDist(prog.remaining) : '—'}</td>
+                        <td className="roster-num">{stats ? fmtDist(stats.remaining) : '—'}</td>
                       )}
                       <td>{ago(r.updated, now)}</td>
                       <td className="roster-locate" aria-hidden="true">📍</td>
