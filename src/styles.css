@@ -799,6 +799,14 @@ a:hover { text-decoration: underline; }
 }
 .roster-empty { color: var(--muted); margin-top: 8px; }
 .roster-hint { color: var(--muted); font-size: 0.9rem; margin: 6px 0 0; }
+.roster-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 0;
+  color: var(--blue-600);
+  font-weight: 600;
+}
 .roster-table-wrap {
   margin-top: 14px;
   overflow-x: auto;

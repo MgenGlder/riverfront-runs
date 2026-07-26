@@ -809,11 +809,28 @@ export default function LiveMap() {
         )}
         {mode === 'off' ? (
           <p className="roster-empty">Start sharing or watching to see the roster.</p>
+        ) : connecting ? (
+          <p className="roster-loading">
+            <span className="spinner" aria-hidden="true" /> Connecting to the live server…
+          </p>
         ) : activeCount === 0 ? (
-          <p className="roster-empty">No one is sharing a location yet. Be the first!</p>
+          mode === 'sharing' ? (
+            <p className="roster-loading">
+              <span className="spinner" aria-hidden="true" /> Getting your location and adding you to
+              the map…
+            </p>
+          ) : (
+            <p className="roster-empty">No one is sharing a location yet.</p>
+          )
         ) : (
-          <div className="roster-table-wrap">
-            <table className="roster-table">
+          <>
+            {mode === 'sharing' && !me && (
+              <p className="roster-loading">
+                <span className="spinner" aria-hidden="true" /> Adding you to the map…
+              </p>
+            )}
+            <div className="roster-table-wrap">
+              <table className="roster-table">
               <thead>
                 <tr>
                   <th></th>
@@ -882,7 +899,8 @@ export default function LiveMap() {
                 })}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </div>
     </section>
